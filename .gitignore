@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Secrets
+.env
+.env.*
+*.key
+
+# Local data (input data is not tracked; see data/README.md)
+data/*.csv
+data/*.xlsx
+!data/README.md
+
+# Tableau workbook artifacts (keep .twb/.twbx out unless explicitly added)
+*.twb.bak
