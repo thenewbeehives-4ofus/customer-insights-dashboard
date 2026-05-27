@@ -1,8 +1,17 @@
-"""Prepare the Online Retail II dataset for Tableau.
+"""Prepare the Acquire Valued Shoppers Challenge dataset for the dashboard.
 
-Outputs two CSVs:
-  - data/customers.csv   one row per customer with RFM scores and a segment label
-  - data/monthly.csv     one row per calendar month with revenue + customer counts
+The full transactions file is ~22 GB and ~350M rows, so this script:
+  1. Streams data/transactions.csv.gz in chunks.
+  2. Keeps customers whose ID mod SAMPLE_MODULUS == 0 — deterministic, no
+     preliminary index scan needed. With ~311K customers in the file and a
+     modulus of 31 the sample lands at ~10K customers, representative of the
+     full customer base rather than the trainHistory offer recipients.
+  3. Drops returns / non-positive amounts, defines one order = (customer, chain, date).
+  4. Builds RFM-scored customer-level aggregates and monthly revenue aggregates.
+
+Outputs:
+  data/customers.csv   one row per customer with R/F/M scores and a segment label
+  data/monthly.csv     one row per calendar month with revenue + customer counts
 
 Run from the repo root:
     python src/data_preparation.py
@@ -11,6 +20,7 @@ Run from the repo root:
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -18,70 +28,145 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RAW_PATH = REPO_ROOT / "data" / "online_retail_II.xlsx"
+TRANSACTIONS_PATH = REPO_ROOT / "data" / "transactions.csv.gz"
 CUSTOMERS_OUT = REPO_ROOT / "data" / "customers.csv"
 MONTHLY_OUT = REPO_ROOT / "data" / "monthly.csv"
 
-# Recency thresholds (in days) used to assign the four customer segments.
-# Measured against the most recent date in the dataset, not today.
-RECENCY_ACTIVE_DAYS = 90
-RECENCY_AT_RISK_DAYS = 180
-# A customer is "New" if their first purchase was within this window AND
-# they have only ordered once (so we don't relabel an active customer as new).
-NEW_CUSTOMER_DAYS = 30
+# Modulus sampling on the customer ID. AVS has ~311,541 distinct customers
+# in the transactions file; modulus 31 yields ~10K customers — enough to
+# surface stable segment percentages and seasonality, small enough to keep
+# the committed CSVs lightweight.
+SAMPLE_MODULUS = 31
+
+# Chunked read configuration.
+CHUNKSIZE = 2_000_000
+
+# Cap the analysis at the last month with complete customer coverage.
+# AVS truncates each customer's transactions at their assigned offer date,
+# so the file's last few months have shrinking active-customer counts that
+# don't reflect business reality. Customer coverage cliffs between March
+# and April 2013 (9491 → 6387 active customers), so we cut at month-end.
+ANALYSIS_END_DATE = pd.Timestamp("2013-03-31")
+
+# Value-tier labels mapped from M-score quintiles. Every customer in this
+# dataset is a heavy shopper by construction (AVS hand-picked "valued
+# shoppers"), so a recency-based "lapsed vs active" segmentation doesn't
+# discriminate. Spend tier does — the top tier outspends the bottom by 20x+.
+VALUE_TIER_LABELS = {
+    5: "Top 20%",
+    4: "Upper 20%",
+    3: "Middle 20%",
+    2: "Lower 20%",
+    1: "Bottom 20%",
+}
 
 
-def load_raw(path: Path) -> pd.DataFrame:
-    """Load both sheets of the Online Retail II workbook and concatenate."""
-    if not path.exists():
-        print(f"Raw dataset not found at {path}.")
-        print("Download instructions: data/README.md")
+def stream_sampled_transactions() -> pd.DataFrame:
+    if not TRANSACTIONS_PATH.exists():
+        print(f"Missing {TRANSACTIONS_PATH}.  Download instructions: data/README.md")
         sys.exit(1)
-    sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
-    frames = [df.assign(_sheet=name) for name, df in sheets.items()]
-    raw = pd.concat(frames, ignore_index=True)
-    raw.columns = [c.strip() for c in raw.columns]
-    return raw
 
+    # Only the columns we need — saves memory.
+    usecols = ["id", "chain", "date", "purchasequantity", "purchaseamount"]
+    dtypes = {
+        "id": "int64",
+        "chain": "int32",
+        "purchasequantity": "int32",
+        "purchaseamount": "float32",
+    }
 
-def clean(raw: pd.DataFrame) -> pd.DataFrame:
-    """Drop cancelled orders, non-positive quantities/prices, and missing IDs."""
-    df = raw.rename(columns={"Customer ID": "CustomerID"}).copy()
-    df = df.dropna(subset=["CustomerID", "InvoiceDate"])
-    df["InvoiceNo"] = df["Invoice"].astype(str)
-    df = df[~df["InvoiceNo"].str.startswith("C")]
-    df = df[df["Quantity"] > 0]
-    df = df[df["Price"] > 0]
-    df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
-    df["CustomerID"] = df["CustomerID"].astype(int)
-    df["LineRevenue"] = df["Quantity"] * df["Price"]
+    kept_chunks: list[pd.DataFrame] = []
+    rows_seen = 0
+    rows_kept = 0
+    started = time.time()
+    print(f"Streaming {TRANSACTIONS_PATH.name} in {CHUNKSIZE:,}-row chunks (modulus {SAMPLE_MODULUS}) ...")
+    reader = pd.read_csv(
+        TRANSACTIONS_PATH,
+        usecols=usecols,
+        dtype=dtypes,
+        chunksize=CHUNKSIZE,
+        compression="gzip",
+    )
+    for i, chunk in enumerate(reader, start=1):
+        rows_seen += len(chunk)
+        # Filter on modulus + positivity. Modulus sampling on the customer ID
+        # gives a uniform random sample of customers across the entire file —
+        # no preliminary scan required.
+        keep = (
+            (chunk["id"] % SAMPLE_MODULUS == 0)
+            & (chunk["purchasequantity"] > 0)
+            & (chunk["purchaseamount"] > 0)
+        )
+        sub = chunk.loc[keep].copy()
+        if not sub.empty:
+            kept_chunks.append(sub)
+            rows_kept += len(sub)
+        if i % 10 == 0:
+            elapsed = time.time() - started
+            print(
+                f"  chunk {i}: {rows_seen:,} rows scanned, "
+                f"{rows_kept:,} kept ({elapsed:.0f}s elapsed)"
+            )
+
+    if not kept_chunks:
+        print("No matching rows found — modulus filter produced an empty result.")
+        sys.exit(1)
+
+    df = pd.concat(kept_chunks, ignore_index=True)
+    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+    df["purchaseamount"] = df["purchaseamount"].astype(float)
+    pre_cap = len(df)
+    df = df[df["date"] <= ANALYSIS_END_DATE].copy()
+    dropped = pre_cap - len(df)
+    print(
+        f"Done: {rows_seen:,} rows scanned, {pre_cap:,} kept, "
+        f"{dropped:,} dropped past {ANALYSIS_END_DATE.date()} "
+        f"({(time.time() - started):.0f}s total)"
+    )
     return df
 
 
 def build_customer_features(df: pd.DataFrame, snapshot_date: pd.Timestamp) -> pd.DataFrame:
-    """Aggregate transactions to one row per customer with RFM + segment label."""
-    grouped = df.groupby("CustomerID")
-    customers = pd.DataFrame({
-        "total_spend": grouped["LineRevenue"].sum().round(2),
-        "order_count": grouped["InvoiceNo"].nunique(),
-        "last_purchase_date": grouped["InvoiceDate"].max(),
-        "first_purchase_date": grouped["InvoiceDate"].min(),
-        "country": grouped["Country"].agg(lambda s: s.mode().iat[0]),
-    }).reset_index()
+    """Aggregate transactions to one row per customer with RFM + segment label.
 
-    customers["avg_order_value"] = (customers["total_spend"] / customers["order_count"]).round(2)
-    customers["days_since_last_purchase"] = (snapshot_date - customers["last_purchase_date"]).dt.days
-    customers["customer_tenure_days"] = (snapshot_date - customers["first_purchase_date"]).dt.days
+    An *order* is defined as one customer's transactions on a single date at a
+    single chain. Returns and zero-amount rows have already been dropped upstream.
+    """
+    orders = (
+        df.groupby(["id", "chain", "date"], sort=False)["purchaseamount"]
+        .sum()
+        .reset_index(name="order_total")
+    )
 
-    # RFM quintile scores. Recency uses inverted ranking so that "most recent"
-    # = score 5; frequency and monetary use natural ranking.
-    customers["r_score"] = _quintile(customers["days_since_last_purchase"], ascending=False)
-    customers["f_score"] = _quintile(customers["order_count"], ascending=True)
-    customers["m_score"] = _quintile(customers["total_spend"], ascending=True)
-    customers["rfm_score"] = customers["r_score"] + customers["f_score"] + customers["m_score"]
+    customer_orders = (
+        orders.groupby("id")
+        .agg(
+            total_spend=("order_total", "sum"),
+            order_count=("order_total", "count"),
+            avg_order_value=("order_total", "mean"),
+            first_purchase_date=("date", "min"),
+            last_purchase_date=("date", "max"),
+        )
+        .reset_index()
+        .rename(columns={"id": "CustomerID"})
+    )
+    customer_orders["total_spend"] = customer_orders["total_spend"].round(2)
+    customer_orders["avg_order_value"] = customer_orders["avg_order_value"].round(2)
+    customer_orders["days_since_last_purchase"] = (
+        snapshot_date - customer_orders["last_purchase_date"]
+    ).dt.days
+    customer_orders["customer_tenure_days"] = (
+        snapshot_date - customer_orders["first_purchase_date"]
+    ).dt.days
 
-    customers["segment"] = customers.apply(_assign_segment, axis=1)
-    return customers
+    customer_orders["r_score"] = _quintile(customer_orders["days_since_last_purchase"], ascending=False)
+    customer_orders["f_score"] = _quintile(customer_orders["order_count"], ascending=True)
+    customer_orders["m_score"] = _quintile(customer_orders["total_spend"], ascending=True)
+    customer_orders["rfm_score"] = (
+        customer_orders["r_score"] + customer_orders["f_score"] + customer_orders["m_score"]
+    )
+    customer_orders["value_tier"] = customer_orders["m_score"].map(VALUE_TIER_LABELS)
+    return customer_orders
 
 
 def _quintile(series: pd.Series, ascending: bool) -> pd.Series:
@@ -91,27 +176,23 @@ def _quintile(series: pd.Series, ascending: bool) -> pd.Series:
     return bins.astype(int)
 
 
-def _assign_segment(row: pd.Series) -> str:
-    """Recency-driven segment with a 'New' override for first-time recent buyers."""
-    if row["order_count"] == 1 and row["customer_tenure_days"] <= NEW_CUSTOMER_DAYS:
-        return "New"
-    if row["days_since_last_purchase"] <= RECENCY_ACTIVE_DAYS:
-        return "Active"
-    if row["days_since_last_purchase"] <= RECENCY_AT_RISK_DAYS:
-        return "At Risk"
-    return "Lapsed"
-
-
 def build_monthly_aggregates(df: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
-    """Per-month revenue, transaction count, distinct customers, and new customers."""
     df = df.copy()
-    df["month"] = df["InvoiceDate"].dt.to_period("M").dt.to_timestamp()
-
-    monthly = df.groupby("month").agg(
-        revenue=("LineRevenue", "sum"),
-        transactions=("InvoiceNo", "nunique"),
-        active_customers=("CustomerID", "nunique"),
-    ).reset_index()
+    df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
+    orders_per_month = (
+        df.groupby(["id", "chain", "date", "month"], sort=False)["purchaseamount"]
+        .sum()
+        .reset_index(name="order_total")
+    )
+    monthly = (
+        orders_per_month.groupby("month")
+        .agg(
+            revenue=("order_total", "sum"),
+            transactions=("order_total", "count"),
+            active_customers=("id", "nunique"),
+        )
+        .reset_index()
+    )
     monthly["revenue"] = monthly["revenue"].round(2)
     monthly["avg_order_value"] = (monthly["revenue"] / monthly["transactions"]).round(2)
 
@@ -125,37 +206,44 @@ def build_monthly_aggregates(df: pd.DataFrame, customers: pd.DataFrame) -> pd.Da
 
 
 def summarize(customers: pd.DataFrame, monthly: pd.DataFrame) -> None:
-    """Print headline numbers so the narrative + README can be written from real data."""
-    seg_counts = customers["segment"].value_counts()
-    seg_pct = (seg_counts / len(customers) * 100).round(1)
-    print("\n=== Customer counts by segment ===")
-    for seg in ["New", "Active", "At Risk", "Lapsed"]:
-        n = int(seg_counts.get(seg, 0))
-        pct = float(seg_pct.get(seg, 0.0))
-        print(f"  {seg:8s} {n:6d}  ({pct:5.1f}%)")
-    print(f"  Total    {len(customers):6d}")
+    print("\n=== Customer counts by value tier ===")
+    tier_summary = (
+        customers.groupby("m_score").agg(
+            customers=("CustomerID", "count"),
+            mean_spend=("total_spend", "mean"),
+            mean_orders=("order_count", "mean"),
+            mean_aov=("avg_order_value", "mean"),
+            sum_spend=("total_spend", "sum"),
+        ).sort_index(ascending=False)
+    )
+    print(tier_summary.round(2).to_string())
 
-    avg_spend_by_seg = customers.groupby("segment")["total_spend"].mean().round(2)
-    print("\n=== Avg lifetime spend by segment ===")
-    for seg, val in avg_spend_by_seg.items():
-        print(f"  {seg:8s} £{val:,.2f}")
+    print("\n=== Spend concentration (Pareto) ===")
+    sorted_spend = customers["total_spend"].sort_values(ascending=False).reset_index(drop=True)
+    total = sorted_spend.sum()
+    cumshare = sorted_spend.cumsum() / total * 100
+    for pct in [5, 10, 20, 50]:
+        n = int(len(sorted_spend) * pct / 100)
+        print(f"  Top {pct:>3d}% ({n:>5,} customers) -> {cumshare.iloc[n - 1]:5.1f}% of revenue")
 
     print("\n=== Monthly revenue snapshot ===")
     avg_rev = monthly["revenue"].mean()
     peak = monthly.loc[monthly["revenue"].idxmax()]
-    print(f"  Avg monthly revenue:  £{avg_rev:,.2f}")
-    print(f"  Peak month:           {peak['month'].strftime('%Y-%m')}  £{peak['revenue']:,.2f}  ({peak['revenue']/avg_rev:.2f}x avg)")
+    first_m = monthly.iloc[0]
+    last_m = monthly.iloc[-1]
+    print(f"  Avg monthly revenue:  ${avg_rev:,.2f}")
+    print(f"  First month:          {first_m['month'].strftime('%Y-%m')}  ${first_m['revenue']:,.2f}")
+    print(f"  Last month:           {last_m['month'].strftime('%Y-%m')}  ${last_m['revenue']:,.2f}")
+    print(f"  Peak month:           {peak['month'].strftime('%Y-%m')}  ${peak['revenue']:,.2f}  ({peak['revenue']/avg_rev:.2f}x avg)")
+    print(f"  Growth factor:        {last_m['revenue'] / first_m['revenue']:.2f}x")
 
 
 def main() -> int:
-    print(f"Loading {RAW_PATH.name} ...")
-    raw = load_raw(RAW_PATH)
-    print(f"  raw rows: {len(raw):,}")
-
-    df = clean(raw)
+    df = stream_sampled_transactions()
     print(f"  rows after cleaning: {len(df):,}")
+    print(f"  unique customers:    {df['id'].nunique():,}")
 
-    snapshot_date = df["InvoiceDate"].max().normalize()
+    snapshot_date = ANALYSIS_END_DATE
     print(f"  snapshot date: {snapshot_date.date()}")
 
     customers = build_customer_features(df, snapshot_date)

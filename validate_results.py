@@ -16,9 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 CUSTOMERS_PATH = REPO_ROOT / "data" / "customers.csv"
 MONTHLY_PATH = REPO_ROOT / "data" / "monthly.csv"
 
-EXPECTED_SEGMENTS = {"New", "Active", "At Risk", "Lapsed"}
-DATA_YEAR_LOWER = 2009
-DATA_YEAR_UPPER = 2011
+EXPECTED_VALUE_TIERS = {"Top 20%", "Upper 20%", "Middle 20%", "Lower 20%", "Bottom 20%"}
+DATA_YEAR_LOWER = 2012
+DATA_YEAR_UPPER = 2013
 
 
 def check_files_exist(errors: list[str]) -> None:
@@ -40,15 +40,15 @@ def check_customers(errors: list[str]) -> None:
         n = int(df["CustomerID"].duplicated().sum())
         errors.append(f"customers.csv: {n} duplicate CustomerID rows")
 
-    segments_found = set(df["segment"].unique())
-    missing = EXPECTED_SEGMENTS - segments_found
+    tiers_found = set(df["value_tier"].unique())
+    missing = EXPECTED_VALUE_TIERS - tiers_found
     if missing:
-        errors.append(f"customers.csv: missing segments {sorted(missing)}")
+        errors.append(f"customers.csv: missing value tiers {sorted(missing)}")
 
-    seg_counts = df["segment"].value_counts()
-    for seg in EXPECTED_SEGMENTS:
-        if seg_counts.get(seg, 0) <= 0:
-            errors.append(f"customers.csv: segment '{seg}' has 0 customers")
+    tier_counts = df["value_tier"].value_counts()
+    for tier in EXPECTED_VALUE_TIERS:
+        if tier_counts.get(tier, 0) <= 0:
+            errors.append(f"customers.csv: tier '{tier}' has 0 customers")
 
     for col in ("r_score", "f_score", "m_score"):
         bad = df[(df[col] < 1) | (df[col] > 5)]
