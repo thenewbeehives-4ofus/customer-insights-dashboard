@@ -2,8 +2,7 @@
 
 A static, prose walkthrough of the dashboard for viewers reading the repo on
 GitHub. The interactive version lives at
-**[https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/)**
-(goes live once GitHub Pages finishes its first build).
+**[https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/)**.
 
 ## 1. The Concentration — cumulative revenue by customer rank
 

@@ -7,7 +7,7 @@ visit frequency, basket composition, and lifetime spend tiers. Built on the
 RFM-scored customer table, and a single self-contained HTML dashboard
 rendered with Plotly.
 
-🔗 **[View Live Dashboard](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/)** *(goes live once GitHub Pages finishes building)*
+🔗 **[View Live Dashboard](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/)**
 
 ## Key Findings
 

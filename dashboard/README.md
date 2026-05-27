@@ -3,7 +3,7 @@
 Interactive HTML dashboard built with Plotly from the customer + monthly CSVs
 produced by [../src/data_preparation.py](../src/data_preparation.py).
 
-🔗 [View Live Dashboard](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/) *(goes live once GitHub Pages finishes building)*
+🔗 [View Live Dashboard](https://thenewbeehives-4ofus.github.io/customer-insights-dashboard/)
 
 ## Files in this folder
 
