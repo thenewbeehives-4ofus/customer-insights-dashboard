@@ -1,48 +1,61 @@
 # Dashboard Narrative Arc
 
-The dashboard answers one question: **where should retention effort focus?**
+The dashboard answers one question: **where does the value come from, and what
+would move the needle?**
 
 Each view sets up a question the next view answers. A viewer reading top to
 bottom builds a coherent argument rather than browsing disconnected charts.
 
-## Part 1 — The Problem (Overview)
+## Part 1 — The Concentration
 
-> **Half of all customers haven't purchased in 90+ days.**
-> The Lapsed segment alone is 40.8% — 2,398 customers who haven't ordered
-> in six months.
+> **10% of customers generate half the revenue.**
+> Top 5% generate 42%; top 20% generate 61%; bottom 50% combined generate just 15%.
 
-The overview lays out the segment mix and a headline KPI strip. The Lapsed
-bar is the visual anchor; the annotation calls out the 40.8% / 9.9% / 47.0% /
-2.3% split so the viewer leaves the page with one number, not four.
+A Lorenz-style curve plots cumulative revenue share against customer rank.
+The reference dashed line shows what an even distribution would look like;
+the actual curve sits dramatically above it. Marker dots at the 5%, 10%, and
+20% percentile points anchor the headline numbers. The annotation pulls the
+"10% → 50%" finding off the chart so the viewer leaves with one statistic,
+not a curve to interpret.
 
-## Part 2 — The Diagnosis (Segment drill-down)
+## Part 2 — The Diagnosis
 
-> **Lapsed customers were overwhelmingly low-frequency buyers** —
-> on average 2.6 orders before going silent.
-> The bigger pattern: **28% of customers are one-time buyers**, and they
-> generate **1/12 the lifetime value of repeat buyers** (£350 vs £4,036).
+> **What separates Top customers from Bottom isn't bigger baskets — it's more visits.**
+> Average order value stays remarkably flat at $55–65 across every value tier.
+> Top-frequency-quartile customers visit 155 times; bottom-quartile customers visit 22.
 
-The scatter (avg order value × order frequency, colored by segment) shows that
-the Active cluster sits in the high-frequency band; everyone else collapses to
-the low-frequency floor. The annotation flags the one-time-buyer cohort as the
-outlier shaping the whole picture: converting a first order to a second is
-the leverage point.
+A scatter of order count against average order value, with each point a
+customer colored by value tier. Two visual patterns stand out:
 
-## Part 3 — The Opportunity (Trends)
+- The points form a **wide horizontal band** at $55–65 AOV. The Y-axis
+  spread is small. AOV does not climb meaningfully with rank.
+- The X-axis spread is **two orders of magnitude** (10–500+ orders).
+  Tier-5 customers sit on the right side of the band; Tier-1 sits on the
+  left. The colored gradient inside the band tells you the spend gap is
+  almost entirely a visit-count gap.
 
-> **November is the natural re-engagement window.**
-> Both 2010 and 2011 peaked in November at ~£1.17M (1.65× the monthly average).
-> Meanwhile new-customer acquisition halved from ~270/month in 2010 to
-> ~125/month in 2011 — retention matters more now than it did a year ago.
+The annotation makes this explicit: retention investment should buy more
+visits per customer, not bigger transactions per visit.
 
-The time-series view overlays monthly revenue (line + Tableau-fitted trend)
-with new-customer acquisition (secondary axis). The annotation marks the
-two November peaks and points to the pre-November ramp as the campaign window.
+## Part 3 — The Opportunity
+
+> **February 2013 is the seasonal peak at $6.1M — 1.40× the monthly average.**
+> Super Bowl, Valentine's Day, and post-tax-refund spending compound into
+> a clear late-winter lift. November–January is the pre-peak ramp window.
+
+A dual-axis chart overlays monthly revenue (line, with a dashed linear trend)
+on new-customer acquisition (gray bars on a secondary axis). The trend line
+slopes gently upward — the business is growing. The February peak is the
+sharpest spike. The annotation flags it as the natural campaign window for
+frequency programs targeting middle-tier customers.
 
 ## Takeaway
 
-The three views compose into one recommendation: **re-engage one-time buyers
-in October, before the November peak.** They are the largest reachable
-cohort (1,623 customers), they are the ones whose lifetime value is being
-left on the table, and the timing is fixed by the seasonality of the
-business.
+The three views compose into one recommendation: **target frequency programs
+at Middle-tier (M3) customers in November–January, ahead of the February peak.**
+
+- It's the largest reachable cohort (~20% of the base, ~$6.5M in current spend).
+- The visit-frequency lever has the highest theoretical ceiling because basket
+  size is already where it needs to be — you're not asking customers to change
+  what they buy, just to come more often.
+- Timing is fixed by the business's own seasonality, not a marketing assumption.
