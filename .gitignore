@@ -21,10 +21,12 @@ Thumbs.db
 .env.*
 *.key
 
-# Local data — raw dataset stays out; derived outputs are committed for reproducibility
-data/*.xlsx
-data/*.xls
-data/*.zip
+# Local data — ignore everything in data/ by default, then allowlist the
+# small derived outputs that need to ship with the repo for reproducibility.
+# Any raw dataset dropped into data/ (xlsx, csv, csv.gz, zip, parquet, …)
+# stays untracked automatically.
+data/*
+!data/.gitkeep
 !data/README.md
 !data/customers.csv
 !data/monthly.csv
