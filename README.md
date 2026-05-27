@@ -126,6 +126,17 @@ documented so each can be defended in a sentence. Full notes:
 - [dashboard/design_decisions.md](dashboard/design_decisions.md) — chart-type,
   color, annotation, and interactivity rationale
 
+## Architecture Decisions
+
+Three architectural decisions shape the project. Each is captured as an
+ADR with context, alternatives considered, and consequences:
+
+- [ADR-001 — Dataset choice (AVS over UCI Online Retail II)](dashboard/decisions/001-dataset-choice.md)
+- [ADR-002 — Visualization stack (Plotly + GitHub Pages over Tableau)](dashboard/decisions/002-visualization-stack.md)
+- [ADR-003 — Segmentation framing (M-score value tiers over recency)](dashboard/decisions/003-segmentation-framing.md)
+
+Index: [dashboard/decisions/README.md](dashboard/decisions/README.md).
+
 ## License
 
 MIT
