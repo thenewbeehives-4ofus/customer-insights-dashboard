@@ -21,10 +21,13 @@ Thumbs.db
 .env.*
 *.key
 
-# Local data (input data is not tracked; see data/README.md)
-data/*.csv
+# Local data — raw dataset stays out; derived outputs are committed for reproducibility
 data/*.xlsx
+data/*.xls
+data/*.zip
 !data/README.md
+!data/customers.csv
+!data/monthly.csv
 
 # Tableau workbook artifacts (keep .twb/.twbx out unless explicitly added)
 *.twb.bak
